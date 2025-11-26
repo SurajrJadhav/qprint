@@ -9,14 +9,29 @@ export default function ShopkeeperPage() {
     const [downloading, setDownloading] = useState(false);
     const [message, setMessage] = useState('');
     const [messageType, setMessageType] = useState<'success' | 'error' | ''>('');
+    const [queue, setQueue] = useState<any[]>([]);
     const router = useRouter();
 
     useEffect(() => {
         const token = localStorage.getItem('token');
         if (!token) {
             router.push('/login');
+            return;
         }
+        fetchQueue();
+        // Refresh queue every 5 seconds
+        const interval = setInterval(fetchQueue, 5000);
+        return () => clearInterval(interval);
     }, []);
+
+    const fetchQueue = async () => {
+        try {
+            const res = await api.get('/queue');
+            setQueue(res.data.queue || []);
+        } catch (err) {
+            console.error('Error fetching queue:', err);
+        }
+    };
 
     const handleDownload = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -56,6 +71,32 @@ export default function ShopkeeperPage() {
         }
     };
 
+    const handleQueueDownload = async (fileId: number) => {
+        try {
+            const res = await api.get(`/queue/download/${fileId}`, { responseType: 'blob' });
+
+            // Create download link
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `qprint-queue-${fileId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+            // Refresh queue
+            fetchQueue();
+            setMessage('✅ Queue file downloaded successfully!');
+            setMessageType('success');
+            setTimeout(() => setMessage(''), 3000);
+        } catch (err: any) {
+            console.error('Queue download error:', err);
+            setMessage('❌ Failed to download queue file.');
+            setMessageType('error');
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
     const handleLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('role');
@@ -65,7 +106,7 @@ export default function ShopkeeperPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 p-6">
             {/* Header */}
-            <div className="max-w-4xl mx-auto mb-8">
+            <div className="max-w-7xl mx-auto mb-8">
                 <div className="flex justify-between items-center">
                     <div>
                         <h1 className="text-4xl font-black text-white mb-1">
@@ -82,116 +123,152 @@ export default function ShopkeeperPage() {
                 </div>
             </div>
 
-            <div className="max-w-4xl mx-auto space-y-6">
-                {/* Main Card */}
-                <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 md:p-12 border border-white/20">
-                    <div className="text-center mb-8">
-                        <div className="text-6xl mb-4">🖨️</div>
-                        <h2 className="text-3xl font-bold text-white mb-2">Download Customer File</h2>
-                        <p className="text-purple-200">Enter the unique code provided by the customer</p>
+            <div className="max-w-7xl mx-auto space-y-6">
+                {/* Global Message */}
+                {message && (
+                    <div className={`p-4 rounded-lg ${messageType === 'success'
+                            ? 'bg-green-500/20 border border-green-400/30 text-green-100'
+                            : 'bg-red-500/20 border border-red-400/30 text-red-100'
+                        }`}>
+                        <p className="font-semibold">{message}</p>
+                    </div>
+                )}
+
+                <div className="grid lg:grid-cols-2 gap-6">
+                    {/* Private Print Section */}
+                    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
+                        <div className="text-center mb-8">
+                            <div className="text-6xl mb-4">🔒</div>
+                            <h2 className="text-3xl font-bold text-white mb-2">Private Print</h2>
+                            <p className="text-purple-200">Download using unique code</p>
+                        </div>
+
+                        <form onSubmit={handleDownload} className="space-y-6">
+                            <div>
+                                <label className="block text-white font-semibold mb-2">Unique Code</label>
+                                <input
+                                    type="text"
+                                    value={code}
+                                    onChange={(e) => setCode(e.target.value)}
+                                    placeholder="Enter 6-character code"
+                                    maxLength={6}
+                                    autoComplete="off"
+                                    spellCheck="false"
+                                    className="w-full bg-white/20 border-2 border-white/30 p-4 rounded-lg text-white text-center text-2xl font-bold tracking-widest placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                    required
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={code.length !== 6 || downloading}
+                                className="w-full bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold py-4 rounded-lg hover:from-pink-600 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed text-lg"
+                            >
+                                {downloading ? '⏳ Downloading...' : '📥 Download File'}
+                            </button>
+                        </form>
                     </div>
 
-                    <form onSubmit={handleDownload} className="space-y-6">
-                        <div>
-                            <label className="block text-white font-semibold mb-2">Unique Code</label>
-                            <input
-                                type="text"
-                                value={code}
-                                onChange={(e) => setCode(e.target.value)}
-                                placeholder="Enter 6-character code"
-                                maxLength={6}
-                                autoComplete="off"
-                                spellCheck="false"
-                                className="w-full bg-white/20 border-2 border-white/30 p-4 rounded-lg text-white text-center text-2xl font-bold tracking-widest placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                required
-                            />
+                    {/* Queue Info */}
+                    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
+                        <div className="text-center mb-8">
+                            <div className="text-6xl mb-4">📋</div>
+                            <h2 className="text-3xl font-bold text-white mb-2">Print Queue</h2>
+                            <p className="text-purple-200">Files waiting in your queue</p>
                         </div>
 
-                        <button
-                            type="submit"
-                            disabled={code.length !== 6 || downloading}
-                            className="w-full bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold py-4 rounded-lg hover:from-pink-600 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed text-lg"
-                        >
-                            {downloading ? '⏳ Downloading...' : '📥 Download File'}
-                        </button>
-                    </form>
+                        <div className="space-y-4">
+                            <div className="bg-white/10 rounded-lg p-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-purple-200 text-sm">Total in Queue</p>
+                                        <p className="text-white font-bold text-3xl">{queue.length}</p>
+                                    </div>
+                                    <div className="text-4xl">📊</div>
+                                </div>
+                            </div>
 
-                    {message && (
-                        <div className={`mt-6 p-4 rounded-lg ${messageType === 'success'
-                                ? 'bg-green-500/20 border border-green-400/30 text-green-100'
-                                : 'bg-red-500/20 border border-red-400/30 text-red-100'
-                            }`}>
-                            <p className="font-semibold">{message}</p>
+                            <div className="bg-gradient-to-r from-pink-500/20 to-purple-600/20 border border-pink-400/30 rounded-lg p-4">
+                                <p className="text-white font-semibold mb-2">💡 Queue Tips</p>
+                                <ul className="text-purple-200 text-sm space-y-1">
+                                    <li>• Files are shown in order (FIFO)</li>
+                                    <li>• Download any file from the queue</li>
+                                    <li>• Files auto-delete after download</li>
+                                    <li>• Queue refreshes every 5 seconds</li>
+                                </ul>
+                            </div>
                         </div>
-                    )}
-                </div>
-
-                {/* Info Cards */}
-                <div className="grid md:grid-cols-2 gap-6">
-                    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="text-3xl">ℹ️</div>
-                            <h3 className="text-xl font-bold text-white">How it Works</h3>
-                        </div>
-                        <ol className="space-y-3 text-purple-200">
-                            <li className="flex gap-2">
-                                <span className="text-pink-400 font-bold">1.</span>
-                                <span>Customer provides 6-character code</span>
-                            </li>
-                            <li className="flex gap-2">
-                                <span className="text-pink-400 font-bold">2.</span>
-                                <span>Enter code and click download</span>
-                            </li>
-                            <li className="flex gap-2">
-                                <span className="text-pink-400 font-bold">3.</span>
-                                <span>File downloads and gets deleted</span>
-                            </li>
-                            <li className="flex gap-2">
-                                <span className="text-pink-400 font-bold">4.</span>
-                                <span>Print and hand over to customer</span>
-                            </li>
-                        </ol>
-                    </div>
-
-                    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="text-3xl">🔒</div>
-                            <h3 className="text-xl font-bold text-white">Security</h3>
-                        </div>
-                        <ul className="space-y-3 text-purple-200">
-                            <li className="flex gap-2">
-                                <span className="text-pink-400">✓</span>
-                                <span>One-time download only</span>
-                            </li>
-                            <li className="flex gap-2">
-                                <span className="text-pink-400">✓</span>
-                                <span>File auto-deleted after download</span>
-                            </li>
-                            <li className="flex gap-2">
-                                <span className="text-pink-400">✓</span>
-                                <span>Unique codes for each file</span>
-                            </li>
-                            <li className="flex gap-2">
-                                <span className="text-pink-400">✓</span>
-                                <span>Secure encrypted connection</span>
-                            </li>
-                        </ul>
                     </div>
                 </div>
 
-                {/* Quick Tips */}
-                <div className="bg-gradient-to-r from-pink-500/20 to-purple-600/20 backdrop-blur-lg rounded-2xl p-6 border border-pink-400/30">
-                    <div className="flex items-start gap-4">
-                        <div className="text-3xl">💡</div>
-                        <div>
-                            <h3 className="text-xl font-bold text-white mb-2">Quick Tips</h3>
-                            <ul className="space-y-2 text-purple-200">
-                                <li>• Enter code exactly as shown (case-sensitive)</li>
-                                <li>• Each code can only be used once for security</li>
-                                <li>• Files are automatically deleted after download</li>
-                                <li>• If download fails, ask customer to re-upload</li>
-                            </ul>
-                        </div>
+                {/* Queue Table */}
+                <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="text-4xl">📋</div>
+                        <h2 className="text-2xl font-bold text-white">Queue Files</h2>
+                        <span className="ml-auto bg-pink-500/30 text-pink-200 px-3 py-1 rounded-full text-sm font-semibold">
+                            {queue.length} files
+                        </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        {queue.length === 0 ? (
+                            <div className="text-center py-12 text-purple-200">
+                                <div className="text-5xl mb-4">📭</div>
+                                <p>No files in queue</p>
+                            </div>
+                        ) : (
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b border-white/20">
+                                        <th className="text-left text-purple-200 font-semibold p-3">#</th>
+                                        <th className="text-left text-purple-200 font-semibold p-3">Customer</th>
+                                        <th className="text-left text-purple-200 font-semibold p-3">File</th>
+                                        <th className="text-left text-purple-200 font-semibold p-3">Settings</th>
+                                        <th className="text-left text-purple-200 font-semibold p-3">Cost</th>
+                                        <th className="text-left text-purple-200 font-semibold p-3">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {queue.map((job, index) => (
+                                        <tr key={job.id} className="border-b border-white/10 hover:bg-white/5">
+                                            <td className="p-3">
+                                                <span className="text-pink-400 font-bold text-lg">#{job.queue_position}</span>
+                                            </td>
+                                            <td className="p-3">
+                                                <p className="text-white font-semibold">{job.customer_name}</p>
+                                                <p className="text-purple-300 text-xs">
+                                                    {new Date(job.created_at).toLocaleString()}
+                                                </p>
+                                            </td>
+                                            <td className="p-3">
+                                                <p className="text-white text-sm">{job.filename}</p>
+                                                <p className="text-purple-300 text-xs">{job.num_pages} pages</p>
+                                            </td>
+                                            <td className="p-3">
+                                                <div className="text-white text-sm space-y-1">
+                                                    <div>📄 {job.copies} copies</div>
+                                                    <div>🔄 {job.print_mode}</div>
+                                                    <div>🎨 {job.color_mode}</div>
+                                                    <div>📏 {job.paper_size}</div>
+                                                </div>
+                                            </td>
+                                            <td className="p-3">
+                                                <p className="text-white font-bold text-lg">₹{job.total_cost}</p>
+                                            </td>
+                                            <td className="p-3">
+                                                <button
+                                                    onClick={() => handleQueueDownload(job.id)}
+                                                    className="px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-600 text-white font-semibold rounded-lg hover:from-pink-600 hover:to-purple-700 transition-all"
+                                                >
+                                                    📥 Download
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
                     </div>
                 </div>
             </div>

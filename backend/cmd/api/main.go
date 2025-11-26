@@ -18,9 +18,7 @@ import (
 
 func main() {
 	// Force load .env file and OVERRIDE any existing environment variables
-	// This ensures .env file takes precedence over OS environment variables
 	if err := godotenv.Overload(".env"); err != nil {
-		// Try loading from backend directory if running from project root
 		if err := godotenv.Overload("backend/.env"); err != nil {
 			log.Println("No .env file found, using environment variables")
 		} else {
@@ -30,7 +28,6 @@ func main() {
 		log.Println("Loaded and OVERRODE env vars from current directory")
 	}
 
-	// DEBUG: Print DATABASE_URL after loading .env
 	log.Printf("DEBUG: DATABASE_URL from env = %s", os.Getenv("DATABASE_URL"))
 
 	database.Connect()
@@ -60,12 +57,13 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.AuthMiddleware)
 		r.Post("/upload", handlers.UploadFile)
+		r.Get("/file/{code}", handlers.DownloadFile)
+		r.Get("/file/{code}/status", handlers.CheckFileStatus)
 		r.Get("/shops", handlers.GetNearestShops)
+		r.Get("/queue", handlers.GetShopQueue)
+		r.Get("/queue/download/{fileId}", handlers.DownloadQueueFile)
+		r.Get("/my-files", handlers.GetMyFiles)
 	})
-
-	// Public or Shopkeeper routes (maybe protect with shopkeeper role later)
-	r.Get("/file/{code}", handlers.DownloadFile)
-	r.Get("/file/{code}/status", handlers.GetFileStatus)
 
 	port := os.Getenv("PORT")
 	if port == "" {
