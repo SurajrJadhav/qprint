@@ -1,12 +1,3 @@
-# File Sharing Web Application
-
-A full-stack file sharing application where customers can upload files and receive unique codes, which shopkeepers can use to download those files. The application also displays nearest shops to customers.
-
-## Tech Stack
-
-- **Frontend**: Next.js 14, TypeScript, TailwindCSS
-- **Backend**: Go (Golang) with Chi router
-- **Database**: PostgreSQL
 - **Authentication**: JWT
 
 ## Project Structure

@@ -50,7 +50,7 @@ func main() {
 	}))
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Welcome to File Sharing API"))
+		w.Write([]byte("Welcome to Qprint API - Print Without Standing in Queue"))
 	})
 
 	r.Post("/register", handlers.Register)

@@ -5,8 +5,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-    title: 'File Sharing App',
-    description: 'Upload and share files with shopkeepers',
+    title: 'Qprint - Print Without Standing in Queue',
+    description: 'Upload documents from anywhere, get a unique code, and collect prints instantly from the nearest shop',
 }
 
 export default function RootLayout({
