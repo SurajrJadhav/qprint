@@ -18,11 +18,12 @@ export default function LoginPage() {
             const res = await api.post('/login', { username, password });
             localStorage.setItem('token', res.data.token);
             localStorage.setItem('role', res.data.role);
+            localStorage.setItem('username', res.data.username);
 
             if (res.data.role === 'shopkeeper') {
-                router.push('/shopkeeper');
+                router.push('/shopkeeper/dashboard');
             } else {
-                router.push('/dashboard');
+                router.push('/customer/dashboard');
             }
         } catch (err: any) {
             console.error('Login error:', err);

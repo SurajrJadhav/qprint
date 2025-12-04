@@ -9,6 +9,7 @@ export default function RegisterPage() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [role, setRole] = useState('customer');
+    const [address, setAddress] = useState('');
     const [lat, setLat] = useState(0);
     const [long, setLong] = useState(0);
     const [error, setError] = useState('');
@@ -18,7 +19,7 @@ export default function RegisterPage() {
         e.preventDefault();
         setError('');
         try {
-            await api.post('/register', { username, password, role, lat, long });
+            await api.post('/register', { username, password, role, lat, long, address });
             router.push('/login');
         } catch (err: any) {
             console.error('Registration error:', err);
@@ -80,6 +81,14 @@ export default function RegisterPage() {
 
                         {role === 'shopkeeper' && (
                             <>
+                                <input
+                                    type="text"
+                                    placeholder="Shop Address"
+                                    value={address}
+                                    onChange={(e) => setAddress(e.target.value)}
+                                    className="bg-white/20 border border-white/30 p-3 rounded-lg text-white placeholder-purple-200 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                    required
+                                />
                                 <button
                                     type="button"
                                     onClick={getLocation}

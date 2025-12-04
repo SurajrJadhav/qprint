@@ -25,8 +25,8 @@ func Register(w http.ResponseWriter, r *http.Request) {
 
 	var userID int
 	err = database.DB.QueryRow(context.Background(),
-		"INSERT INTO users (username, password_hash, role, lat, long) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-		req.Username, hashedPassword, req.Role, req.Lat, req.Long).Scan(&userID)
+		"INSERT INTO users (username, password_hash, role, lat, long, address) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+		req.Username, hashedPassword, req.Role, req.Lat, req.Long, req.Address).Scan(&userID)
 
 	if err != nil {
 		http.Error(w, "Failed to register user: "+err.Error(), http.StatusInternalServerError)
@@ -65,5 +65,9 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(models.LoginResponse{Token: token, Role: user.Role})
+	json.NewEncoder(w).Encode(models.LoginResponse{
+		Token:    token,
+		Role:     user.Role,
+		Username: user.Username,
+	})
 }

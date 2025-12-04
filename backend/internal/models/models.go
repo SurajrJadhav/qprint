@@ -9,6 +9,7 @@ type User struct {
 	Role         string  `json:"role"` // 'customer' or 'shopkeeper'
 	Lat          float64 `json:"lat,omitempty"`
 	Long         float64 `json:"long,omitempty"`
+	Address      string  `json:"address,omitempty"`
 }
 
 type File struct {
@@ -40,11 +41,13 @@ type RegisterRequest struct {
 	Role     string   `json:"role"`
 	Lat      *float64 `json:"lat"`
 	Long     *float64 `json:"long"`
+	Address  string   `json:"address,omitempty"`
 }
 
 type LoginResponse struct {
-	Token string `json:"token"`
-	Role  string `json:"role"`
+	Token    string `json:"token"`
+	Role     string `json:"role"`
+	Username string `json:"username"`
 }
 
 type UploadRequest struct {

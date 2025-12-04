@@ -1,6 +1,10 @@
 package handlers
 
 import (
+	"backend/internal/auth"
+	"backend/internal/database"
+	"backend/internal/models"
+	"backend/internal/utils"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,13 +14,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
-
-	"backend/internal/auth"
-	"backend/internal/database"
-	"backend/internal/models"
-	"backend/internal/utils"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -238,7 +238,7 @@ func GetNearestShops(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := database.DB.Query(context.Background(),
-		"SELECT id, username, lat, long FROM users WHERE role = 'shopkeeper'")
+		"SELECT id, username, lat, long, address FROM users WHERE role = 'shopkeeper'")
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
@@ -249,6 +249,7 @@ func GetNearestShops(w http.ResponseWriter, r *http.Request) {
 		ID       int     `json:"id"`
 		Username string  `json:"username"`
 		Distance float64 `json:"distance"`
+		Address  *string `json:"address,omitempty"`
 	}
 
 	var shops []Shop
@@ -256,7 +257,8 @@ func GetNearestShops(w http.ResponseWriter, r *http.Request) {
 		var id int
 		var username string
 		var lat, long float64
-		if err := rows.Scan(&id, &username, &lat, &long); err != nil {
+		var address *string
+		if err := rows.Scan(&id, &username, &lat, &long, &address); err != nil {
 			continue
 		}
 
@@ -265,8 +267,14 @@ func GetNearestShops(w http.ResponseWriter, r *http.Request) {
 			ID:       id,
 			Username: username,
 			Distance: distance,
+			Address:  address,
 		})
 	}
+
+	// Sort shops by distance
+	sort.Slice(shops, func(i, j int) bool {
+		return shops[i].Distance < shops[j].Distance
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(shops)
