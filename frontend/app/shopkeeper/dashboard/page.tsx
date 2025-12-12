@@ -13,6 +13,12 @@ export default function ShopkeeperPage() {
     const [username, setUsername] = useState('');
     const [view, setView] = useState<'dashboard' | 'history' | 'stats'>('dashboard');
     const [history, setHistory] = useState<any[]>([]);
+    const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+    // New state for manual confirmation
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [pendingPrint, setPendingPrint] = useState<{ code: string, isQueue: boolean, fileId?: number } | null>(null);
+
     const router = useRouter();
 
     useEffect(() => {
@@ -80,49 +86,20 @@ export default function ShopkeeperPage() {
 
             iframe.onload = () => {
                 console.log("Iframe loaded PDF");
-                setTimeout(() => {
-                    console.log("Focusing and printing...");
-                    try {
-                        iframe.contentWindow?.focus();
-                        iframe.contentWindow?.print();
-                    } catch (e) {
-                        console.error("Print call failed:", e);
+                console.log("Focusing and printing...");
+                try {
+                    if (iframe.contentWindow) {
+                        iframe.contentWindow.focus();
+                        iframe.contentWindow.print();
+                        // Show manual confirmation modal immediately
+                        setPendingPrint({ code, isQueue, fileId });
+                        setShowConfirmModal(true);
                     }
-
-                    // Show confirmation dialog after print dialog appears
-                    setTimeout(async () => {
-                        const didPrint = window.confirm('Did you complete printing?\n\nClick OK if you printed successfully.\nClick Cancel if you cancelled printing.');
-                        console.log("User confirmation result:", didPrint);
-
-                        if (didPrint) {
-                            // Confirm print on backend (this deletes the file)
-                            try {
-                                if (isQueue && fileId) {
-                                    await api.post(`/queue/${fileId}/confirm`);
-                                    fetchQueue();
-                                    setMessage('✅ Print confirmed! File deleted from server.');
-                                } else {
-                                    await api.post(`/file/${code}/confirm`);
-                                    setMessage('✅ Print confirmed! File deleted from server.');
-                                    setCode('');
-                                }
-                                setMessageType('success');
-                            } catch (err) {
-                                console.error('Confirm print error:', err);
-                                setMessage('❌ Failed to confirm print.');
-                                setMessageType('error');
-                            }
-                        } else {
-                            // User cancelled - file remains available
-                            setMessage('⚠️ Print cancelled. File is still available.');
-                            setMessageType('');
-                        }
-
-                        // Cleanup
-                        document.body.removeChild(iframe);
-                        window.URL.revokeObjectURL(url);
-                    }, 1000); // Check confirmation shortly after print dialog closes
-                }, 1000); // Wait 1 second for PDF to render before printing
+                } catch (e) {
+                    console.error("Print call failed:", e);
+                    setMessage('❌ Print failed to start.');
+                    setMessageType('error');
+                }
             };
 
             iframe.src = url;
@@ -143,14 +120,41 @@ export default function ShopkeeperPage() {
         }
     };
 
+    const handleConfirmPrint = async () => {
+        if (!pendingPrint) return;
+
+        try {
+            if (pendingPrint.isQueue && pendingPrint.fileId) {
+                await api.post(`/queue/${pendingPrint.fileId}/confirm`);
+                fetchQueue();
+                setMessage('✅ Print confirmed! File deleted from server.');
+            } else {
+                await api.post(`/file/${pendingPrint.code}/confirm`);
+                setMessage('✅ Print confirmed! File deleted from server.');
+                setCode('');
+            }
+            setMessageType('success');
+        } catch (err) {
+            console.error('Confirm print error:', err);
+            setMessage('❌ Failed to confirm print.');
+            setMessageType('error');
+        } finally {
+            setShowConfirmModal(false);
+            setPendingPrint(null);
+        }
+    };
+
+    const handleCancelPrint = () => {
+        setMessage('⚠️ Print cancelled. File is still available.');
+        setMessageType('');
+        setShowConfirmModal(false);
+        setPendingPrint(null);
+    };
+
     const handlePrivatePrintSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         handlePrint(code);
     };
-
-    const [showProfileMenu, setShowProfileMenu] = useState(false);
-
-    // ... (existing code)
 
     const handleLogout = () => {
         localStorage.removeItem('token');
@@ -513,6 +517,34 @@ export default function ShopkeeperPage() {
                     </div>
                 )}
             </div>
+
+            {/* Print Confirmation Modal */}
+            {showConfirmModal && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-2xl max-w-md w-full text-center shadow-2xl animate-in fade-in zoom-in duration-300">
+                        <div className="text-6xl mb-6">🖨️</div>
+                        <h3 className="text-2xl font-bold text-white mb-4">Printing in Progress...</h3>
+                        <p className="text-purple-200 mb-8">
+                            Please check the print dialog. Once the document is printed successfully, click Confirm below.
+                        </p>
+
+                        <div className="flex gap-4">
+                            <button
+                                onClick={handleCancelPrint}
+                                className="flex-1 px-6 py-3 bg-red-500/20 text-red-300 border border-red-500/30 rounded-xl hover:bg-red-500/30 transition-all font-semibold"
+                            >
+                                ❌ Cancel
+                            </button>
+                            <button
+                                onClick={handleConfirmPrint}
+                                className="flex-1 px-6 py-3 bg-green-500/20 text-green-300 border border-green-500/30 rounded-xl hover:bg-green-500/30 transition-all font-bold"
+                            >
+                                ✅ Confirm Print
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

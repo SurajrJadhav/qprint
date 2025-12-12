@@ -2,7 +2,7 @@
 # Project Manager for Linux/Mac
 # Usage: ./manage.sh [start|stop|restart|status]
 
-set -e
+# set -e removed to prevent early exit during cleanup
 
 BACKEND_DIR="backend"
 FRONTEND_DIR="frontend"
@@ -17,25 +17,25 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 print_header() {
-    echo -e "\n${CYAN}========================================${NC}"
-    echo -e "${CYAN}$1${NC}"
-    echo -e "${CYAN}========================================${NC}\n"
+    echo -e "\n${CYAN}========================================${NC}" >&2
+    echo -e "${CYAN}$1${NC}" >&2
+    echo -e "${CYAN}========================================${NC}\n" >&2
 }
 
 print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
+    echo -e "${GREEN}✓ $1${NC}" >&2
 }
 
 print_error() {
-    echo -e "${RED}✗ $1${NC}"
+    echo -e "${RED}✗ $1${NC}" >&2
 }
 
 print_info() {
-    echo -e "${BLUE}ℹ $1${NC}"
+    echo -e "${BLUE}ℹ $1${NC}" >&2
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠ $1${NC}"
+    echo -e "${YELLOW}⚠ $1${NC}" >&2
 }
 
 # Check if process is running
@@ -48,6 +48,30 @@ is_running() {
         return 0
     else
         return 1
+    fi
+}
+
+# Open log in new terminal
+open_terminal_log() {
+    local title=$1
+    local log_file=$2
+    local pid=$3
+    
+    # Command to run: tail -f --pid=PID log_file; read
+    # This ensures the window stays open after the process dies
+    local cmd="tail -f --pid=$pid $log_file; echo ''; echo 'Process exited. Press Enter to close...'; read"
+    
+    if command -v gnome-terminal > /dev/null; then
+        gnome-terminal --title="$title" -- bash -c "$cmd"
+    elif command -v konsole > /dev/null; then
+        konsole --title "$title" -e bash -c "$cmd"
+    elif command -v xfce4-terminal > /dev/null; then
+        xfce4-terminal --title="$title" -e "bash -c \"$cmd\""
+    elif command -v xterm > /dev/null; then
+        xterm -T "$title" -e "$cmd" &
+    else
+        print_warning "No supported terminal emulator found. Logs will not be shown in separate window."
+        print_info "You can view logs manually: tail -f $log_file"
     fi
 }
 
@@ -70,6 +94,10 @@ start_backend() {
     if is_running "$pid"; then
         print_success "Backend started (PID: $pid)"
         print_info "Backend running on http://localhost:8080"
+        
+        # Open log in new window
+        open_terminal_log "Backend Logs" "$(pwd)/backend.log" "$pid"
+        
         echo "$pid"
         return 0
     else
@@ -109,6 +137,10 @@ start_frontend() {
     if is_running "$pid"; then
         print_success "Frontend started (PID: $pid)"
         print_info "Frontend running on http://localhost:3000"
+        
+        # Open log in new window
+        open_terminal_log "Frontend Logs" "$(pwd)/frontend.log" "$pid"
+        
         echo "$pid"
         return 0
     else
@@ -169,47 +201,63 @@ start_project() {
     fi
 }
 
+# Kill process and its children
+kill_tree() {
+    local pid=$1
+    if [ -z "$pid" ]; then
+        return
+    fi
+    
+    # Kill children first
+    pkill -P "$pid" 2>/dev/null || true
+    
+    # Kill parent
+    kill "$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+}
+
 # Stop project
 stop_project() {
     print_header "Stopping File Sharing Application"
     
     if [ ! -f "$PID_FILE" ]; then
-        print_warning "No PID file found. Nothing to stop."
-        return 0
-    fi
-    
-    source "$PID_FILE"
-    
-    local stopped=false
-    
-    # Stop backend
-    if [ -n "$BACKEND_PID" ] && is_running "$BACKEND_PID"; then
-        print_info "Stopping backend (PID: $BACKEND_PID)..."
-        kill "$BACKEND_PID" 2>/dev/null || kill -9 "$BACKEND_PID" 2>/dev/null
-        print_success "Backend stopped"
-        stopped=true
+        print_warning "No PID file found. Checking ports..."
     else
-        print_info "Backend is not running"
+        source "$PID_FILE"
+        
+        # Stop backend
+        if [ -n "$BACKEND_PID" ]; then
+            print_info "Stopping backend tree (PID: $BACKEND_PID)..."
+            kill_tree "$BACKEND_PID" || true
+        fi
+        
+        # Stop frontend
+        if [ -n "$FRONTEND_PID" ]; then
+            print_info "Stopping frontend tree (PID: $FRONTEND_PID)..."
+            kill_tree "$FRONTEND_PID" || true
+        fi
+        
+        # Clean up
+        rm -f "$PID_FILE" backend.log frontend.log
     fi
     
-    # Stop frontend
-    if [ -n "$FRONTEND_PID" ] && is_running "$FRONTEND_PID"; then
-        print_info "Stopping frontend (PID: $FRONTEND_PID)..."
-        kill "$FRONTEND_PID" 2>/dev/null || kill -9 "$FRONTEND_PID" 2>/dev/null
-        print_success "Frontend stopped"
-        stopped=true
-    else
-        print_info "Frontend is not running"
+    # Fallback: Kill by port to ensure clean state
+    print_info "Ensuring ports are free..."
+    
+    # Free port 8080 (Backend)
+    local port_8080_pid=$(lsof -t -i:8080 2>/dev/null)
+    if [ -n "$port_8080_pid" ]; then
+        print_warning "Port 8080 still in use by PID $port_8080_pid. Killing..."
+        kill -9 "$port_8080_pid" 2>/dev/null
     fi
     
-    # Clean up
-    rm -f "$PID_FILE" backend.log frontend.log
-    
-    if [ "$stopped" = true ]; then
-        print_header "Application Stopped"
-    else
-        print_warning "No running processes found"
+    # Free port 3000 (Frontend)
+    local port_3000_pid=$(lsof -t -i:3000 2>/dev/null)
+    if [ -n "$port_3000_pid" ]; then
+        print_warning "Port 3000 still in use by PID $port_3000_pid. Killing..."
+        kill -9 "$port_3000_pid" 2>/dev/null
     fi
+    
+    print_success "Application stopped and ports freed"
 }
 
 # Restart project

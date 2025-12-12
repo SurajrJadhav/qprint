@@ -626,7 +626,7 @@ export default function DashboardPage() {
                                                     </div>
                                                 </div>
 
-                                                {file.print_type === 'queue' && file.shop_name && (
+                                                {file.shop_name ? (
                                                     <div className="mt-2 text-sm flex items-center gap-2">
                                                         <div>
                                                             <span className="text-purple-300">Shop:</span>
@@ -648,6 +648,17 @@ export default function DashboardPage() {
                                                                 🧭 Navigate
                                                             </a>
                                                         )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="mt-2 text-sm flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                                                            }}
+                                                            className="ml-auto px-3 py-1 bg-pink-500/20 text-pink-300 rounded-lg hover:bg-pink-500/30 transition-colors flex items-center gap-1 text-xs"
+                                                        >
+                                                            📍 Find Nearby Shop
+                                                        </button>
                                                     </div>
                                                 )}
                                             </div>

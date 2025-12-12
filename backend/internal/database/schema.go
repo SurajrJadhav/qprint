@@ -13,7 +13,8 @@ func InitSchema() {
 		password_hash TEXT NOT NULL,
 		role TEXT NOT NULL,
 		lat DOUBLE PRECISION,
-		long DOUBLE PRECISION
+		long DOUBLE PRECISION,
+		address TEXT
 	);
 
 	CREATE TABLE IF NOT EXISTS files (
