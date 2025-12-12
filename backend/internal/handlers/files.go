@@ -184,16 +184,8 @@ func DownloadFile(w http.ResponseWriter, r *http.Request) {
 	// Serve the file
 	http.ServeFile(w, r, filePath)
 
-	// Update status to downloaded
-	_, err = database.DB.Exec(context.Background(),
-		"UPDATE files SET status = 'downloaded' WHERE unique_code = $1", code)
-	if err != nil {
-		// Log error but don't fail the download
-		fmt.Printf("Error updating file status: %v\n", err)
-	}
-
-	// Delete the file from server
-	os.Remove(filePath)
+	// NOTE: File is no longer auto-deleted here.
+	// Shopkeeper must confirm print completion via /file/:code/confirm endpoint
 }
 
 func CheckFileStatus(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +242,8 @@ func GetNearestShops(w http.ResponseWriter, r *http.Request) {
 		Username string  `json:"username"`
 		Distance float64 `json:"distance"`
 		Address  *string `json:"address,omitempty"`
+		Lat      float64 `json:"lat"`
+		Long     float64 `json:"long"`
 	}
 
 	var shops []Shop
@@ -268,6 +262,8 @@ func GetNearestShops(w http.ResponseWriter, r *http.Request) {
 			Username: username,
 			Distance: distance,
 			Address:  address,
+			Lat:      lat,
+			Long:     long,
 		})
 	}
 
@@ -359,21 +355,8 @@ func DownloadQueueFile(w http.ResponseWriter, r *http.Request) {
 	// Serve the file
 	http.ServeFile(w, r, filePath)
 
-	// Update status and delete file
-	_, err = database.DB.Exec(context.Background(),
-		"UPDATE files SET status = 'downloaded' WHERE id = $1", fileID)
-	if err != nil {
-		fmt.Printf("Error updating file status: %v\n", err)
-	}
-
-	// Reorder queue positions
-	database.DB.Exec(context.Background(),
-		`UPDATE files SET queue_position = queue_position - 1 
-		 WHERE shop_id = $1 AND status != 'downloaded' AND queue_position > 
-		 (SELECT queue_position FROM files WHERE id = $2)`, shopID, fileID)
-
-	// Delete the file from server
-	os.Remove(filePath)
+	// NOTE: File is no longer auto-deleted here.
+	// Shopkeeper must confirm print completion via /queue/:fileId/confirm endpoint
 }
 
 func GetMyFiles(w http.ResponseWriter, r *http.Request) {
@@ -386,7 +369,7 @@ func GetMyFiles(w http.ResponseWriter, r *http.Request) {
 	rows, err := database.DB.Query(context.Background(),
 		`SELECT f.id, f.unique_code, f.print_type, f.status, f.copies, f.print_mode, 
 		 f.color_mode, f.paper_size, f.num_pages, f.total_cost, f.queue_position, 
-		 f.created_at, u.username as shop_name
+		 f.created_at, u.username as shop_name, u.lat as shop_lat, u.long as shop_long
 		 FROM files f
 		 LEFT JOIN users u ON f.shop_id = u.id
 		 WHERE f.user_id = $1
@@ -407,9 +390,10 @@ func GetMyFiles(w http.ResponseWriter, r *http.Request) {
 		var queuePosition *int
 		var createdAt time.Time
 		var shopName *string
+		var shopLat, shopLong *float64
 
 		if err := rows.Scan(&id, &uniqueCode, &printType, &status, &copies, &printMode,
-			&colorMode, &paperSize, &numPages, &totalCost, &queuePosition, &createdAt, &shopName); err != nil {
+			&colorMode, &paperSize, &numPages, &totalCost, &queuePosition, &createdAt, &shopName, &shopLat, &shopLong); err != nil {
 			continue
 		}
 
@@ -433,12 +417,102 @@ func GetMyFiles(w http.ResponseWriter, r *http.Request) {
 		if shopName != nil {
 			fileData["shop_name"] = *shopName
 		}
+		if shopLat != nil {
+			fileData["shop_lat"] = *shopLat
+		}
+		if shopLong != nil {
+			fileData["shop_long"] = *shopLong
+		}
 
 		files = append(files, fileData)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"files": files})
+}
+
+// ConfirmPrivatePrint marks a private print file as downloaded and deletes it
+func ConfirmPrivatePrint(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+
+	claims, ok := r.Context().Value(auth.UserKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var filePath string
+	err := database.DB.QueryRow(context.Background(),
+		"SELECT file_path FROM files WHERE unique_code = $1", code).Scan(&filePath)
+
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Update status to downloaded and set shop_id to current user (shopkeeper)
+	_, err = database.DB.Exec(context.Background(),
+		"UPDATE files SET status = 'downloaded', shop_id = $1 WHERE unique_code = $2", claims.UserID, code)
+	if err != nil {
+		fmt.Printf("Error updating file status: %v\n", err)
+	}
+
+	// Delete the file from server
+	os.Remove(filePath)
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Print confirmed"})
+}
+
+// ConfirmQueuePrint marks a queue print file as downloaded and deletes it
+func ConfirmQueuePrint(w http.ResponseWriter, r *http.Request) {
+	fileIDStr := chi.URLParam(r, "fileId")
+	fileID, err := strconv.Atoi(fileIDStr)
+	if err != nil {
+		http.Error(w, "Invalid file ID", http.StatusBadRequest)
+		return
+	}
+
+	claims, ok := r.Context().Value(auth.UserKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get file info and verify it belongs to this shop
+	var filePath string
+	var shopID int
+	err = database.DB.QueryRow(context.Background(),
+		"SELECT file_path, shop_id FROM files WHERE id = $1", fileID).Scan(&filePath, &shopID)
+
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	if shopID != claims.UserID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Update status and delete file
+	_, err = database.DB.Exec(context.Background(),
+		"UPDATE files SET status = 'downloaded' WHERE id = $1", fileID)
+	if err != nil {
+		fmt.Printf("Error updating file status: %v\n", err)
+	}
+
+	// Reorder queue positions
+	database.DB.Exec(context.Background(),
+		`UPDATE files SET queue_position = queue_position - 1 
+		 WHERE shop_id = $1 AND status != 'downloaded' AND queue_position > 
+		 (SELECT queue_position FROM files WHERE id = $2)`, shopID, fileID)
+
+	// Delete the file from server
+	os.Remove(filePath)
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Print confirmed"})
 }
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -450,4 +524,50 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 			math.Sin(dLon/2)*math.Sin(dLon/2)
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	return R * c
+}
+
+func GetShopHistory(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(auth.UserKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Fetch all files printed by this shop (status='downloaded')
+	rows, err := database.DB.Query(context.Background(),
+		`SELECT id, unique_code, print_type, copies, num_pages, total_cost, created_at 
+		 FROM files 
+		 WHERE shop_id = $1 AND status = 'downloaded' 
+		 ORDER BY created_at DESC`, claims.UserID)
+
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var history []map[string]interface{}
+	for rows.Next() {
+		var id, copies, numPages int
+		var uniqueCode, printType string
+		var totalCost float64
+		var createdAt time.Time
+
+		if err := rows.Scan(&id, &uniqueCode, &printType, &copies, &numPages, &totalCost, &createdAt); err != nil {
+			continue
+		}
+
+		history = append(history, map[string]interface{}{
+			"id":     id,
+			"code":   uniqueCode,
+			"type":   printType,
+			"copies": copies,
+			"pages":  numPages,
+			"cost":   totalCost,
+			"date":   createdAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"history": history})
 }
